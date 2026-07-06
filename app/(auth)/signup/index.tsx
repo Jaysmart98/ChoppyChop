@@ -9,30 +9,18 @@ import { gql } from "graphql-tag";
 import { useMutation } from "@apollo/client/react";
 import { useRouter } from "next/navigation";
 
-// Form Validation Schema supporting user roles
 const signupSchema = z.object({
   name: z.string().min(2, "Full name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Please enter a valid phone number"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["customer", "vendor", "rider"], {
-    errorMap: () => ({ message: "Please select your account type" }),
+role: z.enum(["customer", "vendor", "rider"], {
+    invalid_type_error: "Please select a valid account type",
+    required_error: "Please select your account type",
   }),
 });
 
 type SignupSchemaType = z.infer<typeof signupSchema>;
-
-interface SignupUserResponse {
-  registeruser: {
-    token: string;
-    user: {
-      id: string;
-      name: string;
-      email: string;
-      role: string;
-    };
-  };
-}
 
 const REGISTER_USER = gql`
   mutation registeruser($name: String!, $email: String!, $phone: String!, $password: String!, $role: String!) {
@@ -53,7 +41,7 @@ export default function SignupForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [registeruser, { loading }] = useMutation<SignupUserResponse>(REGISTER_USER);
+  const [registeruser, { loading }] = useMutation(REGISTER_USER);
 
   const {
     register,
@@ -63,9 +51,7 @@ export default function SignupForm() {
     formState: { errors },
   } = useForm<SignupSchemaType>({
     resolver: zodResolver(signupSchema),
-    defaultValues: {
-      role: "customer",
-    },
+    defaultValues: { role: "customer" },
   });
 
   const activeRole = watch("role");
@@ -74,12 +60,7 @@ export default function SignupForm() {
     setErrorMsg(null);
     try {
       const { data } = await registeruser({ variables: values });
-      const token = data?.registeruser?.token;
-      const userRole = data?.registeruser?.user?.role;
-
-      if (!token) {
-        throw new Error("Registration succeeded but no authorization token was returned.");
-      }
+      const { token, user } = data.registeruser;
 
       const response = await fetch("/api/setcookies", {
         method: "POST",
@@ -88,29 +69,20 @@ export default function SignupForm() {
       });
 
       if (response.status === 200) {
-        const sessionObj = { isSignedIn: true, role: userRole };
-        localStorage.setItem("isSignedIn", JSON.stringify(sessionObj));
-
-        if (userRole === "rider") {
-          router.push("/dashboard/rider");
-        } else if (userRole === "vendor") {
-          router.push("/dashboard/vendor");
-        } else {
-          router.push("/");
-        }
-        
+        if (user.role === "rider") router.push("/dashboard/rider");
+        else if (user.role === "vendor") router.push("/dashboard/vendor");
+        else router.push("/");
         router.refresh();
       } else {
-        throw new Error("Failed to configure authentication session context.");
+        throw new Error("Failed to create session.");
       }
     } catch (error: any) {
-      console.error(error);
       setErrorMsg(error.message || "An error occurred during account creation.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] flex flex-col items-center justify-center p-4 py-12">
+       <div className="min-h-screen bg-[#FAFAFA] flex flex-col items-center justify-center p-4 py-12">
       
       {/* Brand Header with custom high-fidelity SVG illustration asset */}
       <div className="flex flex-col items-center gap-2 mb-8">
@@ -202,7 +174,7 @@ export default function SignupForm() {
         </h1>
       </div>
 
-      {/* Main Container Card */}
+
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 border border-gray-100">
         <div className="mb-6">
           <h2 className="text-2xl font-bold text-gray-900">Create an account</h2>
@@ -210,184 +182,73 @@ export default function SignupForm() {
         </div>
 
         {errorMsg && (
-          <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-sm mb-5 font-medium transition-all">
+          <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-sm mb-5 font-medium">
             {errorMsg}
           </div>
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          
-          {/* Custom Role Selection Segmented Grid UI */}
+          {/* Role Selection */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2.5">
-              Join ChoppyChop As a:
-            </label>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2.5">Join ChoppyChop As a:</label>
             <div className="grid grid-cols-3 gap-3">
-              {/* Option: Customer */}
-              <button
-                type="button"
-                onClick={() => setValue("role", "customer")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${
-                  activeRole === "customer"
-                    ? "border-[#00A859] bg-[#E6F6EF] text-[#00A859]"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                </svg>
-                <span className="text-xs font-bold">Customer</span>
-              </button>
-
-              {/* Option: Vendor */}
-              <button
-                type="button"
-                onClick={() => setValue("role", "vendor")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${
-                  activeRole === "vendor"
-                    ? "border-[#00A859] bg-[#E6F6EF] text-[#00A859]"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-                <span className="text-xs font-bold">Vendor</span>
-              </button>
-
-              {/* Option: Rider */}
-              <button
-                type="button"
-                onClick={() => setValue("role", "rider")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${
-                  activeRole === "rider"
-                    ? "border-[#00A859] bg-[#E6F6EF] text-[#00A859]"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                <span className="text-xs font-bold">Rider</span>
-              </button>
+              {(["customer", "vendor", "rider"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setValue("role", r)}
+                  className={`p-3 rounded-xl border-2 transition-all capitalize font-bold text-xs ${
+                    activeRole === r ? "border-[#00A859] bg-[#E6F6EF] text-[#00A859]" : "border-gray-200 text-gray-500"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
             </div>
-            {errors.role && (
-              <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.role.message}</p>
-            )}
           </div>
 
-          {/* Full Name Input */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-              Full Name
-            </label>
-            <input
-              {...register("name")}
-              type="text"
-              placeholder="Enter full name"
-              className={`w-full px-4 py-3 bg-[#F4F4F4] border rounded-xl focus:bg-white focus:ring-2 focus:ring-[#00A859] focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-400 font-medium ${
-                errors.name ? "border-red-400 ring-1 ring-red-400 bg-white" : "border-transparent"
-              }`}
-            />
-            {errors.name && (
-              <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.name.message}</p>
-            )}
-          </div>
-
-          {/* Email Input */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-              Email Address
-            </label>
-            <input
-              {...register("email")}
-              type="email"
-              placeholder="eg. name@example.com"
-              className={`w-full px-4 py-3 bg-[#F4F4F4] border rounded-xl focus:bg-white focus:ring-2 focus:ring-[#00A859] focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-400 font-medium ${
-                errors.email ? "border-red-400 ring-1 ring-red-400 bg-white" : "border-transparent"
-              }`}
-            />
-            {errors.email && (
-              <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.email.message}</p>
-            )}
-          </div>
-
-          {/* Phone Number Input */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-              Phone Number
-            </label>
-            <input
-              {...register("phone")}
-              type="tel"
-              placeholder="eg. +234 812 345 6789"
-              className={`w-full px-4 py-3 bg-[#F4F4F4] border rounded-xl focus:bg-white focus:ring-2 focus:ring-[#00A859] focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-400 font-medium ${
-                errors.phone ? "border-red-400 ring-1 ring-red-400 bg-white" : "border-transparent"
-              }`}
-            />
-            {errors.phone && (
-              <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.phone.message}</p>
-            )}
-          </div>
-
-          {/* Password Input */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-              Password
-            </label>
-            <div className="relative">
+          {/* Inputs with high contrast placeholders */}
+          {[
+            { name: "name", label: "Full Name", placeholder: "Enter full name" },
+            { name: "email", label: "Email Address", placeholder: "eg. name@example.com", type: "email" },
+            { name: "phone", label: "Phone Number", placeholder: "eg. +234 812 345 6789" },
+          ].map((field) => (
+            <div key={field.name}>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">{field.label}</label>
               <input
-                {...register("password")}
-                type={showPassword ? "text" : "password"}
-                placeholder="Create password (min 6 characters)"
-                className={`w-full pl-4 pr-12 py-3 bg-[#F4F4F4] border rounded-xl focus:bg-white focus:ring-2 focus:ring-[#00A859] focus:border-transparent outline-none transition-all text-gray-900 placeholder-gray-400 font-medium ${
-                  errors.password ? "border-red-400 ring-1 ring-red-400 bg-white" : "border-transparent"
-                }`}
+                {...register(field.name as keyof SignupSchemaType)}
+                type={field.type || "text"}
+                placeholder={field.placeholder}
+                className="w-full px-4 py-3 bg-[#F4F4F4] rounded-xl placeholder-gray-400 text-gray-900 border border-transparent focus:border-[#00A859] outline-none"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
-              >
-                {showPassword ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268-2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268-2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                )}
-              </button>
+              {errors[field.name as keyof SignupSchemaType] && <p className="text-red-500 text-xs mt-1">{errors[field.name as keyof SignupSchemaType]?.message}</p>}
             </div>
-            {errors.password && (
-              <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.password.message}</p>
-            )}
+          ))}
+
+          {/* Password */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">Password</label>
+            <input
+              {...register("password")}
+              type={showPassword ? "text" : "password"}
+              placeholder="Create password"
+              className="w-full px-4 py-3 bg-[#F4F4F4] rounded-xl placeholder-gray-400 text-gray-900 border border-transparent focus:border-[#00A859] outline-none"
+            />
+            {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
           </div>
 
-          {/* Action Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 bg-[#00A859] text-white font-bold rounded-xl hover:bg-[#00914C] active:scale-[0.99] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed mt-2 text-base"
-          >
-            {loading ? "Creating Account..." : "Sign Up"}
+          <button type="submit" disabled={loading} className="w-full py-4 bg-[#00A859] text-white font-bold rounded-xl hover:bg-[#00914C]">
+            {loading ? "Creating..." : "Sign Up"}
           </button>
         </form>
 
-        {/* Separator Block */}
         <div className="flex items-center my-6">
           <div className="flex-1 border-t border-gray-200"></div>
-          <span className="px-3 text-gray-400 text-xs font-bold uppercase tracking-wider">Already have an account?</span>
+          <span className="px-3 text-gray-600 text-xs font-bold uppercase tracking-wider">Already have an account?</span>
           <div className="flex-1 border-t border-gray-200"></div>
         </div>
 
-        {/* Alternate Link Target */}
-        <Link
-          href="/login"
-          className="block w-full py-4 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-900 font-bold rounded-xl text-center transition-colors text-base"
-        >
+        <Link href="/login" className="block w-full py-4 bg-gray-50 border border-gray-200 text-gray-900 font-bold rounded-xl text-center">
           Sign In
         </Link>
       </div>

@@ -1,83 +1,62 @@
+import { GraphQLError } from "graphql";
+import bcrypt from "bcryptjs";
+import UserModel from "@/shared/database/model/user.model";
+import { createToken } from "@/shared/lib/auth";
 
-import blogmodel from "../database/model/blog.model";
-import cloudinary from "../lib/cloudinary";
-import { usermodel } from "../database/model/user.model";
-
-
-type contexttype ={
-  user?: {
-    email:string
-    id: string
-    iat: number
-  }
-}
-
-type blog = {
-    title:string
-    content:string
-    excerp:string
-    author:string
-    category:string
-    image:string
-}
-export const blogresolvers = {
+export const userResolvers = {
   Query: {
-   allblog:async(_: unknown,{page, limit}:{page:number, limit:number})=>{
-    console.log(page);
-    console.log(limit);
-    const skip = (page - 1) * limit
-     const total =  await blogmodel.countDocuments()
-      const totalpages = Math.ceil(total / limit)      
-     const allblog = await blogmodel.find().skip(skip).limit(limit)
-      return allblog
-   }
+    me: async (_: any, __: any, context: any) => {
+      if (!context.user) throw new GraphQLError("Not authenticated");
+      return await UserModel.findById(context.user.id);
+    },
+    getUser: async (_: any, { id }: { id: string }) => {
+      return await UserModel.findById(id);
+    },
   },
-  Mutation:{
-     addblog: async(_: unknown, param:blog, context:contexttype)=>{
-        try {
 
-          const {user}  = context
-          console.log(user);
-          if (!user) {
-             throw new Error("invalid user")
-          }
-          const {title, content,excerp,author, category, image} = param
-           if (!title || !content || !excerp || !category || !image || !author) {
-             throw new Error("All fields are mandatoy")
-           }
-          const uploaded =  await cloudinary.uploader.upload(image) 
-          if (uploaded) {
-           const newBlog =  await blogmodel.create({
-             ...param,
-             image:uploaded.secure_url })
-            return newBlog
-           }
-        } catch (error) {
-          if (error instanceof Error) {
-             throw new Error(error?.message)
-          }
-        }
-     },
-     deleteblog: async (_: unknown, param: {id:string},context:contexttype) =>{
-      try {
-         const {user}  = context
-          console.log(user);
-          if (!user) {
-             throw new Error("invalid user")
-          }
-         const oneuser =  await usermodel.findById(user?.id)
-         console.log(oneuser);
-         
-          const deleteblog = await blogmodel.findOneAndDelete({_id:param?.id, author:oneuser?.name })
-          console.log(deleteblog);
-          
-        return deleteblog
-      } catch (error) {
-         if (error instanceof Error) {
-             throw new Error(error?.message)
-          }
-      }
-     }
+  Mutation: {
+    registeruser: async (_: any, args: any) => {
+      const { name, email, phone, password, role } = args;
+      
+      const existingUser = await UserModel.findOne({ email });
+      if (existingUser) throw new GraphQLError("User already exists");
 
-  }
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      const user = await UserModel.create({
+        name,
+        email,
+        phone,
+        password: hashedPassword,
+        role,
+      });
+
+      const token = await createToken({ id: user._id.toString(), role: user.role });
+      
+      return { token, user };
+    },
+
+    login: async (_: any, { input }: any) => {
+      const { email, password } = input;
+      const user = await UserModel.findOne({ email });
+      
+      if (!user) throw new GraphQLError("Invalid credentials");
+      
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) throw new GraphQLError("Invalid credentials");
+
+      const token = await createToken({ id: user._id.toString(), role: user.role });
+      return { token, user };
+    },
+
+    updateProfile: async (_: any, { input }: any, context: any) => {
+      if (!context.user) throw new GraphQLError("Not authenticated");
+      
+      return await UserModel.findByIdAndUpdate(
+        context.user.id,
+        { $set: input },
+        { new: true, runValidators: true }
+      );
+    },
+  },
 };
